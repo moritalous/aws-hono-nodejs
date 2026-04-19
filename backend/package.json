@@ -1,0 +1,17 @@
+{
+  "name": "backend",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/lambda.ts --target bun --outdir dist --minify"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "hono": "^4.12.14"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}
