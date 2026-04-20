@@ -3,6 +3,9 @@
   "private": true,
   "workspaces": ["backend", "frontend"],
   "scripts": {
-    "dev": "bun run --parallel dev"
+    "dev": "concurrently -n backend,frontend -c blue,green \"bun run --cwd=backend dev\" \"bun run --cwd=frontend dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
   }
 }
