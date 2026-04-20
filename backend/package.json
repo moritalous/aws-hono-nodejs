@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
-    "build": "bun build src/lambda.ts --target node --outdir dist --minify"
+    "build": "bun build src/lambda.ts --target node --outdir dist --minify --format cjs",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^4.0.96",

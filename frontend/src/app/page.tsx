@@ -24,7 +24,7 @@ import { SendIcon, SquareIcon } from "lucide-react";
 export default function ChatPage() {
   const { messages, sendMessage, status, stop } = useChat({
     transport: new DefaultChatTransport({
-      api: "http://localhost:3001/api/chat",
+      api: `${process.env.NEXT_PUBLIC_API_BASE_URL ?? ""}/api/chat`,
     }),
   });
 

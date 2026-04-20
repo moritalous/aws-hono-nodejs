@@ -1,0 +1,110 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+jobs:
+  # ── CI: type check + test + build validation ────────────────────────────────
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      # Backend
+      - name: Type check backend
+        run: bun run typecheck:backend
+
+      - name: Test backend
+        run: bun run test
+
+      - name: Build backend (Lambda bundle)
+        run: bun run build:backend
+
+      # Frontend
+      - name: Type check frontend
+        run: bun run typecheck:frontend
+
+      - name: Build frontend (static export)
+        run: bun run build:frontend
+
+      # CDK synth — validates the CloudFormation template without deploying
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install CDK dependencies
+        run: npm ci
+        working-directory: infra
+
+      - name: CDK synth
+        run: npm run synth
+        working-directory: infra
+        env:
+          CDK_DEFAULT_ACCOUNT: '123456789012'
+          CDK_DEFAULT_REGION: ${{ env.AWS_REGION }}
+
+  # ── Deploy: only on push to main ────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      id-token: write   # Required for OIDC authentication
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build backend (Lambda bundle)
+        run: bun run build:backend
+
+      - name: Build frontend (static export)
+        run: bun run build:frontend
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: infra/package-lock.json
+
+      - name: Install CDK dependencies
+        run: npm ci
+        working-directory: infra
+
+      # Configure AWS credentials via OIDC (recommended)
+      # Setup: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html
+      # Set GitHub secret: AWS_ROLE_ARN (e.g. arn:aws:iam::123456789012:role/github-actions-deploy)
+      # Alternative: use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY secrets instead
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK deploy
+        run: npm run deploy
+        working-directory: infra

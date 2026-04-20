@@ -5,7 +5,16 @@
   "scripts": {
     "dev:backend": "bun run --cwd backend dev",
     "dev:frontend": "bun run --cwd frontend dev",
-    "dev": "concurrently \"bun run dev:backend\" \"bun run dev:frontend\""
+    "dev": "concurrently \"bun run dev:backend\" \"bun run dev:frontend\"",
+    "build:backend": "bun run --cwd backend build",
+    "build:frontend": "bun run --cwd frontend build",
+    "typecheck:backend": "bun run --cwd backend typecheck",
+    "typecheck:frontend": "bun run --cwd frontend typecheck",
+    "typecheck": "concurrently \"bun run typecheck:backend\" \"bun run typecheck:frontend\"",
+    "test": "bun run --cwd backend test",
+    "infra:synth": "npm run synth --prefix infra",
+    "infra:deploy": "npm run deploy --prefix infra",
+    "infra:diff": "npm run diff --prefix infra"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
