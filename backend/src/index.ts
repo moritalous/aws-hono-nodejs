@@ -16,7 +16,8 @@ const glob = new Bun.Glob('src/app/**/route.ts')
 
 for await (const file of glob.scan({ cwd: rootDir })) {
   const module = await import(join(rootDir, file)) as RouteModule
-  const routePath = file.replace(/^src\/app/, '').replace(/\/route\.ts$/, '') || '/'
+  const normalized = file.replaceAll('\\', '/')
+  const routePath = normalized.replace(/^src\/app/, '').replace(/\/route\.ts$/, '') || '/'
   const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   for (const method of methods) {
     const handler = module[method]
