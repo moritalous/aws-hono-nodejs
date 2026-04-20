@@ -1,0 +1,10 @@
+{
+  "name": "aws-hono-nodejs",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"bun run dev --cwd backend\" \"npm run dev --prefix frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
