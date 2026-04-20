@@ -1,9 +1,4 @@
-import { Hono } from 'hono'
 import { handle } from 'hono/aws-lambda'
-import { loadRoutes } from './loader'
-
-const app = new Hono()
-
-await loadRoutes(app)
+import { app } from './app'
 
 export const handler = handle(app)
