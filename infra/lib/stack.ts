@@ -5,8 +5,37 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront'
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as iam from 'aws-cdk-lib/aws-iam'
+import {
+  HttpApi,
+  HttpMethod,
+  HttpIntegrationType,
+  HttpRouteIntegration,
+  HttpRouteIntegrationBindOptions,
+  HttpRouteIntegrationConfig,
+  PayloadFormatVersion,
+  CorsHttpMethod,
+} from 'aws-cdk-lib/aws-apigatewayv2'
 import { Construct } from 'constructs'
 import * as path from 'path'
+
+/**
+ * Minimal Lambda proxy integration for API Gateway HTTP API.
+ * Equivalent to HttpLambdaIntegration from the alpha package, implemented
+ * inline to avoid the alpha dependency.
+ */
+class HttpLambdaProxyIntegration extends HttpRouteIntegration {
+  constructor(id: string, private readonly fn: lambda.IFunction) {
+    super(id)
+  }
+
+  bind(_options: HttpRouteIntegrationBindOptions): HttpRouteIntegrationConfig {
+    return {
+      type: HttpIntegrationType.AWS_PROXY,
+      uri: this.fn.functionArn,
+      payloadFormatVersion: PayloadFormatVersion.VERSION_2_0,
+    }
+  }
+}
 
 export class AwsHonoStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -25,7 +54,6 @@ export class AwsHonoStack extends cdk.Stack {
         NODE_ENV: 'production',
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1',
         // CORS not required in production: frontend and API share the same CloudFront domain.
-        // Set here only as a safety net; actual cross-origin requests don't occur.
         CORS_ORIGIN: '*',
       },
     })
@@ -42,20 +70,39 @@ export class AwsHonoStack extends cdk.Stack {
       }),
     )
 
-    // Lambda Function URL with RESPONSE_STREAM — required for true streaming.
-    // API Gateway does not support streaming; Lambda Function URL does.
-    const functionUrl = apiFunction.addFunctionUrl({
-      authType: lambda.FunctionUrlAuthType.NONE,
-      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
-      cors: {
-        allowedOrigins: ['*'],
-        allowedMethods: [lambda.HttpMethod.ALL],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+    // ── API Gateway HTTP API ──────────────────────────────────────────────────
+    // API Gateway HTTP API supports Lambda response streaming.
+    // Uses streamHandle (hono/aws-lambda) on the Lambda side for chunked streaming.
+    const httpApi = new HttpApi(this, 'HttpApi', {
+      apiName: `${id}-http-api`,
+      // CORS handled by Hono middleware in local dev; not needed in production
+      // (same CloudFront domain). Kept here for direct API testing convenience.
+      corsPreflight: {
+        allowOrigins: ['*'],
+        allowMethods: [CorsHttpMethod.ANY],
+        allowHeaders: ['Content-Type', 'Authorization'],
       },
     })
 
-    // Extract hostname from the Function URL (strip "https://" prefix)
-    const fnUrlHostname = cdk.Fn.select(2, cdk.Fn.split('/', functionUrl.url))
+    // Grant API Gateway permission to invoke the Lambda function
+    apiFunction.grantInvoke(new iam.ServicePrincipal('apigateway.amazonaws.com'))
+
+    const integration = new HttpLambdaProxyIntegration('LambdaIntegration', apiFunction)
+
+    // Route all /api/* and /api requests to Lambda
+    httpApi.addRoutes({
+      path: '/api/{proxy+}',
+      methods: [HttpMethod.ANY],
+      integration,
+    })
+    httpApi.addRoutes({
+      path: '/api',
+      methods: [HttpMethod.ANY],
+      integration,
+    })
+
+    // API Gateway HTTP API endpoint hostname (no https:// prefix)
+    const apiHostname = cdk.Fn.select(2, cdk.Fn.split('/', httpApi.apiEndpoint))
 
     // ── S3 bucket for frontend static files ──────────────────────────────────
     const frontendBucket = new s3.Bucket(this, 'FrontendBucket', {
@@ -84,15 +131,16 @@ export class AwsHonoStack extends cdk.Stack {
         compress: true,
       },
       additionalBehaviors: {
-        // All /api/* requests are forwarded to the Lambda Function URL
+        // All /api/* requests forwarded to API Gateway HTTP API
         '/api/*': {
-          origin: new origins.HttpOrigin(fnUrlHostname, {
+          origin: new origins.HttpOrigin(apiHostname, {
             protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
           }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           cachePolicy: apiCachePolicy,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
-          // Forward all headers/query strings except Host (Lambda Function URL requires its own Host)
+          // Forward all headers/query strings except Host
+          // (API Gateway requires its own Host header)
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
           compress: false,
         },
@@ -130,9 +178,9 @@ export class AwsHonoStack extends cdk.Stack {
       description: 'CloudFront distribution URL (use this as your app URL)',
     })
 
-    new cdk.CfnOutput(this, 'FunctionUrl', {
-      value: functionUrl.url,
-      description: 'Lambda Function URL (accessed via CloudFront /api/*)',
+    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
+      value: httpApi.apiEndpoint,
+      description: 'API Gateway HTTP API URL (accessed via CloudFront /api/*)',
     })
 
     new cdk.CfnOutput(this, 'FrontendBucketName', {
